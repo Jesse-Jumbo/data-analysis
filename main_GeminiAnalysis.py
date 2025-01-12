@@ -227,7 +227,7 @@ def main():
         writer.writeheader()
     with open(target_file, mode='w', newline='', encoding='utf-8-sig') as file:
         writer = csv.writer(file)
-        writer.writerow(['案件類型數字'])
+        writer.writerow(['Target'])
 
     while fetched_count < 450:
         page_data, links = parse_results_page(current_page_content)

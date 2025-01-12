@@ -28,7 +28,7 @@ report = sweetviz.analyze(data)
 report.show_html("report.html")
 
 # 处理名义变量
-nominal_columns = ['計罰']
+nominal_columns = ['計罰', '總額預定', '賠償', '工期', '延遲', '心證', '逾期']
 label_encoders = {}
 
 for column in nominal_columns:

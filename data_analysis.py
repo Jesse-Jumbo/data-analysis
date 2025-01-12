@@ -1,6 +1,7 @@
 import sweetviz
 import pandas as pd
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, confusion_matrix
 import shap
 
 # 数据读取
@@ -22,7 +23,7 @@ report.show_html("report.html")
 
 # 处理名义变量
 nominal_columns = [
-    '計罰', '總額預定'
+    '計罰', '總額預定', '賠償', '工期', '延遲', '心證', '逾期'
 ]
 data = pd.get_dummies(data, columns=nominal_columns)
 
@@ -115,3 +116,7 @@ best_pipeline = tpot_new.fitted_pipeline_
 best_pipeline.fit(x_train_selected, y_train)
 print(best_pipeline.score(x_train_selected, y_train))
 print(best_pipeline.score(x_test_selected, y_test))
+
+# 新增混淆矩陣
+print(confusion_matrix(y_test, rf_model.predict(x_test)))
+print(classification_report(y_test, rf_model.predict(x_test)))
