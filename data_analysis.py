@@ -1,122 +1,108 @@
-import sweetviz
 import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, confusion_matrix
-import shap
+from sklearn.model_selection import train_test_split, StratifiedKFold, GridSearchCV
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report, ConfusionMatrixDisplay, roc_curve, auc
+from imblearn.over_sampling import BorderlineSMOTE
+import matplotlib.pyplot as plt
+import seaborn as sns
+from matplotlib.backends.backend_pdf import PdfPages
 
-# 数据读取
+# 設置字體
+plt.rcParams['font.sans-serif'] = ['Heiti TC']
+plt.rcParams['axes.unicode_minus'] = False
+
+# 讀取數據
 file_path = "updated_keyword_counts_per_line.csv"
 data = pd.read_csv(file_path)
-
-# 数据预处理
-missing_values_count = data.isnull().sum()
-missing_values_sorted = missing_values_count.sort_values(ascending=False)
-total_cells = len(data)
-missing_percentage = (missing_values_sorted / total_cells) * 100
-missing_data = pd.DataFrame({'Missing Values': missing_values_sorted, 'Percentage (%)': missing_percentage})
-print(missing_data)
 data = data.dropna()
 
-# Sweetviz分析
-report = sweetviz.analyze(data)
-report.show_html("report.html")
+# 顯示類別分佈
+print("Class distribution before SMOTE:")
+print(data['Target'].value_counts())
 
-# 处理名义变量
-nominal_columns = [
-    '計罰', '總額預定', '賠償', '工期', '延遲', '心證', '逾期'
-]
+# 特徵處理
+nominal_columns = ['計罰', '總額預定', '賠償', '工期', '延遲', '心證', '逾期']
 data = pd.get_dummies(data, columns=nominal_columns)
-
-# 特征选择
 data['Target'] = data['Target'].map({'punitive': 1, 'compensatory': 2, 'notdefine': 0})
+
+# 過濾極小類別
+data = data[data['Target'] != 0]
+print("Class distribution after filtering:")
+print(data['Target'].value_counts())
+
+# 分割數據
 y = data["Target"]
-x = data.drop("Target", axis=1).drop("id", axis=1)
-x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
+x = data.drop(["Target", "id"], axis=1)
+x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, stratify=y, random_state=42)
 
-# 随机森林模型训练
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import GridSearchCV
+# 確保數據格式正確
+x_train = x_train.astype(float)
+x_test = x_test.astype(float)
 
-rf = RandomForestClassifier(n_estimators=100, random_state=42)
-param_grid = {'max_depth': [5, 10, 15], 'min_samples_leaf': [1, 3, 5]}
-grid_search = GridSearchCV(estimator=rf, param_grid=param_grid, cv=3, scoring='f1_weighted', verbose=2)
+# 處理類別不平衡
+smote = BorderlineSMOTE(random_state=42, k_neighbors=5)
+x_train, y_train = smote.fit_resample(x_train, y_train)
+
+print("Class distribution after SMOTE:")
+print(pd.Series(y_train).value_counts())
+
+# 訓練隨機森林模型
+param_grid = {
+    'n_estimators': [100, 200],
+    'max_depth': [10, 20],
+    'min_samples_leaf': [1, 3],
+    'class_weight': [None, 'balanced']
+}
+
+rf = RandomForestClassifier(random_state=42)
+cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+grid_search = GridSearchCV(estimator=rf, param_grid=param_grid, cv=cv, scoring='f1_weighted', verbose=1)
 grid_search.fit(x_train, y_train)
+
+# 最佳模型
 best_rf = grid_search.best_estimator_
-rf_model = RandomForestClassifier(n_estimators=100, max_depth=15, min_samples_leaf=1, random_state=42)
-rf_model.fit(x_train, y_train)
-print(rf_model.score(x_train, y_train))
-print(rf_model.score(x_test, y_test))
+print("Best Parameters:", grid_search.best_params_)
 
-# 特征重要性分析
-import numpy as np
-import matplotlib.pyplot as plt
+# 性能評估
+y_pred = best_rf.predict(x_test)
+print("Classification Report:")
+print(classification_report(y_test, y_pred))
 
-features = x_train.columns
-importances = best_rf.feature_importances_
-indices = np.argsort(importances)[::-1]
-sorted_features = pd.DataFrame({'Features': features[indices], 'Importance': importances[indices]})
+# 圖表輸出
+results_pdf = "analysis_results.pdf"
+with PdfPages(results_pdf) as pdf:
+    # 類別分佈圖
+    fig, ax = plt.subplots()
+    sns.countplot(x=y, ax=ax, color="b")  # 使用單一顏色
+    ax.set_title("Class Distribution Before SMOTE")
+    pdf.savefig(fig)
+    plt.close(fig)
 
-plt.figure(figsize=(10, 6))
-plt.title('Feature Importances by RandomForest')
-plt.bar(range(len(importances)), importances[indices], color='b', align='center')
-plt.xticks(range(len(importances)), features[indices], rotation=90)
-plt.xlabel('Relative Importance')
-plt.show()
+    fig, ax = plt.subplots()
+    sns.countplot(x=y_train, ax=ax, color="g")  # 使用單一顏色
+    ax.set_title("Class Distribution After SMOTE")
+    pdf.savefig(fig)
+    plt.close(fig)
 
-top_features = sorted_features['Features'][:25]
-x_train_selected = x_train[top_features]
-x_test_selected = x_test[top_features]
+    # 混淆矩陣
+    fig, ax = plt.subplots()
+    ConfusionMatrixDisplay.from_estimator(best_rf, x_test, y_test, ax=ax)
+    ax.set_title("Confusion Matrix")
+    pdf.savefig(fig)
+    plt.close(fig)
 
-# 再次进行GridSearchCV优化
-grid_search = GridSearchCV(estimator=rf, param_grid=param_grid, cv=3, scoring='f1_weighted', verbose=2)
-grid_search.fit(x_train_selected, y_train)
-print(grid_search.best_params_)
+    # ROC曲線
+    y_test_proba = best_rf.predict_proba(x_test)[:, 1]
+    fpr, tpr, _ = roc_curve(y_test, y_test_proba, pos_label=2)
+    roc_auc = auc(fpr, tpr)
+    fig, ax = plt.subplots()
+    ax.plot(fpr, tpr, label=f"ROC curve (AUC = {roc_auc:.2f})")
+    ax.plot([0, 1], [0, 1], 'k--')
+    ax.set_title("Receiver Operating Characteristic (ROC) Curve")
+    ax.set_xlabel("False Positive Rate")
+    ax.set_ylabel("True Positive Rate")
+    ax.legend()
+    pdf.savefig(fig)
+    plt.close(fig)
 
-# 训练新的随机森林模型
-rf_1 = RandomForestClassifier(n_estimators=20, max_depth=6, min_samples_leaf=1, random_state=42)
-rf_1.fit(x_train, y_train)
-print(rf_1.score(x_train, y_train))
-print(rf_1.score(x_test, y_test))
-
-sweetviz.analyze(pd.concat([x_train_selected, y_train], axis=1)).show_html("selected.html")
-
-# TPOT模型训练
-from tpot.config import classifier_config_dict
-
-xgboost_keys = [key for key in classifier_config_dict if ("xgboost" or "gradientboosting") in key.lower()]
-for key in xgboost_keys:
-    del classifier_config_dict[key]
-
-from tpot import TPOTClassifier
-
-tpot_new = TPOTClassifier(
-    generations=5,
-    population_size=50,
-    verbosity=2,
-    scoring='f1_weighted',
-    random_state=42,
-    config_dict=classifier_config_dict,
-    cv=5,
-    n_jobs=-1,
-)
-
-# 确保输入数据的正确性
-print(x_train_selected.shape)
-print(y_train.shape)
-
-# 调用TPOT进行模型优化
-tpot_new.fit(x_train_selected, y_train)
-
-# 导出TPOT生成的最佳管道
-tpot_new.export('tpot_exported_pipeline.py')
-
-# 使用TPOT生成的最佳管道
-best_pipeline = tpot_new.fitted_pipeline_
-
-best_pipeline.fit(x_train_selected, y_train)
-print(best_pipeline.score(x_train_selected, y_train))
-print(best_pipeline.score(x_test_selected, y_test))
-
-# 新增混淆矩陣
-print(confusion_matrix(y_test, rf_model.predict(x_test)))
-print(classification_report(y_test, rf_model.predict(x_test)))
+print(f"圖表已成功匯出至 '{results_pdf}'")
