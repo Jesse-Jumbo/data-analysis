@@ -22,7 +22,8 @@ print("Class distribution before filtering:")
 print(data['Target'].value_counts())
 
 # 特徵處理
-nominal_columns = ['計罰', '總額預定', '賠償', '工期', '延遲', '心證', '逾期']
+# nominal_columns = ['計罰', '總額預定', '賠償', '工期', '延遲', '心證', '逾期']
+nominal_columns = ['賠償', '工期', '逾期']
 data['Target'] = data['Target'].map({'punitive': 1, 'compensatory': 2, 'notdefine': 0})
 
 # 過濾極小類別
@@ -30,9 +31,11 @@ data = data[data['Target'] != 0]
 print("Class distribution after filtering:")
 print(data['Target'].value_counts())
 
+
 # 計算詞頻
 def calculate_keyword_frequencies(data, keywords):
     return data.groupby('Target')[keywords].mean()
+
 
 keyword_frequencies = calculate_keyword_frequencies(data, nominal_columns)
 
